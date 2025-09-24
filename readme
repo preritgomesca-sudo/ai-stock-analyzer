@@ -1,0 +1,20 @@
+# 📈 AI-Powered Stock Analyzer — Open Data
+
+This is a **Streamlit app** that analyzes stocks using **open data sources**:
+- Daily prices (via Alpha Vantage API or fallback to Stooq)
+- Politician trading activity (U.S. House + Senate filings)
+- Technical indicators (RSI, MACD, momentum, volume spikes, 52-week position)
+- Optional news sentiment (via GDELT API)
+
+It supports:
+- **Single Ticker Mode** → deep dive on one stock
+- **Watchlist Mode** → bulk scoring for a list of tickers (CSV or pasted text)
+
+---
+
+## 🚀 Quickstart
+
+### 1. Clone the repo
+```bash
+git clone https://github.com/your-username/ai-stock-analyzer.git
+cd ai-stock-analyzer
