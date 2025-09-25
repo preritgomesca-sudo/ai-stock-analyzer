@@ -192,6 +192,7 @@ st.write("Alpha Vantage key detected:", bool(ALPHA_KEY))
 def render_single_ticker(sym: str):
     st.title(f"📈 {sym} — Deep Dive")
     price = get_price_history(sym)
+   
     if price.empty:
     st.error(
         "No price data found for this ticker.\n\n"
