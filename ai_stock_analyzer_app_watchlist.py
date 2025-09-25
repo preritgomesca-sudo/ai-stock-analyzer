@@ -5,14 +5,13 @@
 #  - Watchlist mode: score many tickers at once (CSV upload or text list)
 #  - Optional news sentiment factor via GDELT timeline tone
 #
-# Notes:
-#  - Add your Alpha Vantage key in Streamlit Cloud: App ⋯ → Settings → Secrets
-#      ALPHAVANTAGE_API_KEY = "YOUR_REAL_KEY"
-#  - Add .streamlit/config.toml with:
-#      [server]
-#      fileWatcherType = "none"
-#  - Optional runtime.txt (repo root): python-3.11
-#
+# Deployment notes:
+#  - In Streamlit Cloud, add:  ALPHAVANTAGE_API_KEY = "YOUR_REAL_KEY"  (App … → Settings → Secrets)
+#  - Optional runtime.txt in repo root:  python-3.11
+#  - Optional .streamlit/config.toml:
+#       [server]
+#       fileWatcherType = "none"
+
 import os, io, math, requests, pandas as pd, numpy as np
 import plotly.express as px
 import streamlit as st
@@ -23,7 +22,6 @@ st.set_page_config(page_title="AI Stock Analyzer — Watchlist + Tone", layout="
 def get_alpha_key():
     key = ""
     try:
-        # Streamlit Cloud stores secrets here
         key = st.secrets.get("ALPHAVANTAGE_API_KEY", "")
     except Exception:
         key = ""
@@ -36,7 +34,7 @@ if ALPHA_KEY:
     os.environ["ALPHAVANTAGE_API_KEY"] = ALPHA_KEY
 
 # -----------------------------
-# Data endpoints (politician trades)
+# Politician trade data endpoints
 # -----------------------------
 HOUSE_TRADES_URL = "https://raw.githubusercontent.com/unitedstates/house-stock-watcher-data/master/data/all_transactions.csv"
 SENATE_URL_CANDIDATES = [
@@ -56,7 +54,7 @@ def fetch_alpha_vantage_daily(symbol: str) -> pd.DataFrame:
         "function": "TIME_SERIES_DAILY_ADJUSTED",
         "symbol": symbol,
         "apikey": ALPHA_KEY,
-        "outputsize": "full"
+        "outputsize": "full",
     }
     try:
         r = requests.get(url, params=params, timeout=30)
@@ -72,7 +70,10 @@ def fetch_alpha_vantage_daily(symbol: str) -> pd.DataFrame:
         df = df.rename(columns={"adjusted close": "adj_close"})
         if "adj_close" not in df:
             df["adj_close"] = df.get("close")
-        return df[["open", "high", "low", "close", "adj_close", "volume"]].dropna()
+        # normalize shape & add `date` column
+        df.index.name = "date"
+        df = df.reset_index()
+        return df[["date", "open", "high", "low", "close", "adj_close", "volume"]].dropna()
     except Exception:
         return pd.DataFrame()
 
@@ -92,9 +93,9 @@ def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
                 df = pd.read_csv(io.StringIO(r.text))
                 if not df.empty:
                     df["Date"] = pd.to_datetime(df["Date"])
-                    df = df.rename(columns=str.lower).set_index("date").sort_index()
+                    df = df.rename(columns=str.lower).rename(columns={"date": "date"}).sort_values("date")
                     df["adj_close"] = df["close"]
-                    return df[["open", "high", "low", "close", "adj_close", "volume"]].dropna()
+                    return df[["date", "open", "high", "low", "close", "adj_close", "volume"]].dropna()
         except Exception:
             pass
     return pd.DataFrame()
@@ -135,26 +136,26 @@ def get_senate_trades() -> pd.DataFrame:
             else: txc = list(df.columns)[0]
             df["TransactionDate"] = pd.to_datetime(df[txc], errors="coerce")
             ticker_col = None
-            for cand in ["Ticker", "ticker", "Symbol", "symbol", "AssetTicker"]:
+            for cand in ["Ticker","ticker","Symbol","symbol","AssetTicker"]:
                 if cand in df.columns:
                     ticker_col = cand; break
             if ticker_col is None:
                 df["Ticker"] = ""
                 ticker_col = "Ticker"
             if "Transaction" not in df.columns:
-                for cand in ["transaction", "Type", "type", "transaction_type"]:
+                for cand in ["transaction","Type","type","transaction_type"]:
                     if cand in df.columns:
                         df["Transaction"] = df[cand]; break
                 else:
                     df["Transaction"] = ""
             if "Representative" not in df.columns:
-                for cand in ["senator", "Senator", "Member"]:
+                for cand in ["senator","Senator","Member"]:
                     if cand in df.columns:
                         df["Representative"] = df[cand]; break
                 else:
                     df["Representative"] = ""
             if "Amount" not in df.columns:
-                for cand in ["amount", "AmountRange", "amount_range"]:
+                for cand in ["amount","AmountRange","amount_range"]:
                     if cand in df.columns:
                         df["Amount"] = df[cand]; break
                 else:
@@ -194,7 +195,6 @@ def summarize_politician_activity(df: pd.DataFrame, symbol: str, days: int = 90)
 # -----------------------------
 # Indicators
 # -----------------------------
-
 def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
     gain = (delta.where(delta > 0, 0.0)).rolling(period).mean()
@@ -323,7 +323,7 @@ def heuristic_score(df: pd.DataFrame, horizon: str, pol_stats_combined: dict = N
     }
 
 # -----------------------------
-# Sidebar + Pages
+# Sidebar + Page routing
 # -----------------------------
 with st.sidebar:
     st.title("AI Stock Analyzer")
@@ -339,7 +339,7 @@ with st.sidebar:
     st.caption("Data Source Status")
     st.write("Alpha Vantage key detected:", bool(ALPHA_KEY))
 
-# Politician dataframes preloaded (based on toggles)
+# Politician dataframes (respect toggles)
 house_df = get_house_trades() if include_house else pd.DataFrame()
 senate_df = get_senate_trades() if include_senate else pd.DataFrame()
 
@@ -354,14 +354,13 @@ def combined_pol_stats(sym: str) -> dict:
     }
 
 # -----------------------------
-# Single Ticker Page
+# Single Ticker page
 # -----------------------------
 def render_single_ticker(sym: str):
     st.title(f"📈 {sym} — Deep Dive")
 
     price = get_price_history(sym)
 
-    # Handle missing data clearly
     if price.empty:
         st.error(
             "No price data found for this ticker.\n\n"
@@ -372,7 +371,7 @@ def render_single_ticker(sym: str):
         )
         st.stop()
 
-    # Indicators
+    # Indicators (work on adj_close series)
     price = price.copy()
     price["EMA50"] = ema(price["adj_close"], 50)
     price["EMA200"] = ema(price["adj_close"], 200)
@@ -380,16 +379,19 @@ def render_single_ticker(sym: str):
     _, _, hist = macd(price["adj_close"])
     price["MACD_hist"] = hist
 
-    # Charts
+    # Charts (x='date' avoids x='index' errors)
     st.subheader("Price & Trend")
-    fig_price = px.line(price.reset_index(), x="index", y=["adj_close","EMA50","EMA200"], labels={"index":"Date","value":"Price","variable":"Series"})
+    fig_price = px.line(price, x="date", y=["adj_close","EMA50","EMA200"],
+                        labels={"date":"Date","value":"Price","variable":"Series"})
     st.plotly_chart(fig_price, width="stretch")
 
     st.subheader("RSI (14)")
-    st.plotly_chart(px.line(price.reset_index(), x="index", y="RSI14"), width="stretch")
+    fig_rsi = px.line(price, x="date", y="RSI14")
+    st.plotly_chart(fig_rsi, width="stretch")
 
     st.subheader("MACD Histogram")
-    st.plotly_chart(px.bar(price.reset_index(), x="index", y="MACD_hist"), width="stretch")
+    fig_macd = px.bar(price, x="date", y="MACD_hist")
+    st.plotly_chart(fig_macd, width="stretch")
 
     # Politician stats
     st.subheader("Politician Trading Activity (last 90d)")
@@ -409,14 +411,14 @@ def render_single_ticker(sym: str):
         if tone_df.empty:
             st.info("No tone data found for this query.")
         else:
-            st.plotly_chart(px.line(tone_df, x="date", y="tone", title="GDELT Tone Timeline"), uwidth="stretch")
+            st.plotly_chart(px.line(tone_df, x="date", y="tone", title="GDELT Tone Timeline"), width="stretch")
             news_component = tone_score(tone_df, days=30)
             st.caption(f"30-day mean tone (scaled): {news_component:.3f}")
 
     # Scoring
     st.subheader("AI Heuristic Scoring")
     res_short = heuristic_score(price, "Short (1-3m)", pol, news_component=news_component)
-    res_long  = heuristic_score(price, "Long (3m+)", pol, news_component=news_component)
+    res_long  = heuristic_score(price, "Long (3m+)",   pol, news_component=news_component)
     t1, t2 = st.tabs(["Short (1-3m)", "Long (3m+)"])
     with t1:
         st.metric("Verdict", res_short["verdict"])
@@ -430,14 +432,15 @@ def render_single_ticker(sym: str):
         st.json(res_long["raw"])
 
 # -----------------------------
-# Watchlist Page
+# Watchlist page
 # -----------------------------
 TEMPLATE = "ticker\nAAPL\nMSFT\nNVDA\nAMD\nGOOGL\n"
 
 def analyze_ticker_for_watchlist(sym: str, horizon: str) -> dict:
     df = get_price_history(sym)
     if df.empty:
-        return {"ticker": sym, "verdict": "N/A", "score": 0.0, "pol_net_90d": 0, "mom_1m": np.nan, "mom_3m": np.nan, "pos_52w": np.nan, "news_30d": 0.0, "status": "no_data"}
+        return {"ticker": sym, "verdict": "N/A", "score": 0.0, "pol_net_90d": 0,
+                "mom_1m": np.nan, "mom_3m": np.nan, "pos_52w": np.nan, "news_30d": 0.0, "status": "no_data"}
     pol = combined_pol_stats(sym)
     news_c = 0.0
     if include_news:
@@ -460,8 +463,6 @@ def analyze_ticker_for_watchlist(sym: str, horizon: str) -> dict:
 def render_watchlist(horizon: str):
     st.title("📋 Watchlist — Bulk Scoring")
     st.write("Upload a CSV with a `ticker` column **or** paste a comma/space/newline-separated list below.")
-
-    # Template download
     st.download_button("Download CSV template", data=TEMPLATE, file_name="watchlist_template.csv", mime="text/csv")
 
     up = st.file_uploader("Upload CSV (column: ticker)", type=["csv"])
@@ -473,7 +474,7 @@ def render_watchlist(horizon: str):
             for c in df.columns:
                 if c.strip().lower() in ["ticker","tickers","symbol","symbols"]:
                     col = c; break
-            if col is None and df.shape[1]>=1: col = df.columns[0]
+            if col is None and df.shape[1] >= 1: col = df.columns[0]
             tickers = [str(t).strip().upper() for t in df[col].dropna().tolist()]
         except Exception:
             st.error("Could not read CSV. Please ensure it has a 'ticker' column.")
@@ -481,7 +482,7 @@ def render_watchlist(horizon: str):
     st.write("Or paste your list:")
     paste = st.text_area("Tickers (AAPL, MSFT, NVDA)", value="AAPL, MSFT, NVDA")
     if paste.strip():
-        more = [t.strip().upper() for t in paste.replace("\n",",").replace(" ",",").split(",") if t.strip()]
+        more = [t.strip().upper() for t in paste.replace("\n", ",").replace(" ", ",").split(",") if t.strip()]
         tickers = list(dict.fromkeys((tickers or []) + more))
 
     if not tickers:
@@ -496,11 +497,10 @@ def render_watchlist(horizon: str):
     prog = st.progress(0)
     for i, sym in enumerate(tickers):
         results.append(analyze_ticker_for_watchlist(sym, horizon))
-        prog.progress((i+1)/len(tickers))
+        prog.progress((i + 1) / len(tickers))
 
     dfres = pd.DataFrame(results)
-    # Basic sorting: strongest score first within verdict
-    dfres = dfres.sort_values(["verdict","score"], ascending=[True, False])
+    dfres = dfres.sort_values(["verdict", "score"], ascending=[True, False])
     st.subheader("Results")
     st.dataframe(dfres, width="stretch")
     st.caption("Tip: click the column headers to sort.")
@@ -508,10 +508,16 @@ def render_watchlist(horizon: str):
 # -----------------------------
 # Router
 # -----------------------------
-if page == "Single Ticker":
+if st.session_state.get("page") == "Single Ticker":
     render_single_ticker(symbol)
-else:
+elif st.session_state.get("page") == "Watchlist":
     render_watchlist(horizon)
+else:
+    # Use current radio selection
+    if page == "Single Ticker":
+        render_single_ticker(symbol)
+    else:
+        render_watchlist(horizon)
 
 st.markdown("---")
 st.markdown(
