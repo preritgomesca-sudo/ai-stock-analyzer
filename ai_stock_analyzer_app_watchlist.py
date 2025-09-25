@@ -11,7 +11,28 @@ import streamlit as st
 
 st.set_page_config(page_title="AI Stock Analyzer — Watchlist + Tone", layout="wide")
 
-ALPHA_KEY = os.getenv("ALPHAVANTAGE_API_KEY", "WOFLUL2NJR2PCOST").strip()
+# --- API key setup: Streamlit Secrets first, then env, then export to env ---
+def get_alpha_key():
+    key = ""
+    try:
+        import streamlit as st
+        # Streamlit Cloud stores secrets here
+        key = st.secrets.get("ALPHAVANTAGE_API_KEY", "")
+    except Exception:
+        # st.secrets may not exist locally
+        key = ""
+    if not key:
+        import os
+        key = os.getenv("ALPHAVANTAGE_API_KEY", "")
+    return (key or "").strip()
+
+ALPHA_KEY = get_alpha_key()
+
+# Export to os.environ so any downstream code that reads env still works
+if ALPHA_KEY:
+    import os
+    os.environ["ALPHAVANTAGE_API_KEY"] = ALPHA_KEY
+
 
 # -----------------------------
 # Price helpers (Alpha Vantage + Stooq fallback)
