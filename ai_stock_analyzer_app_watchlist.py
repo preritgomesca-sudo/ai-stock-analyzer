@@ -202,14 +202,6 @@ def render_single_ticker(sym: str):
     )
     st.stop()
 
-    if price.empty:
-        st.error("No price data found.")
-        return
-    price["EMA50"] = ema(price["adj_close"], 50)
-    price["EMA200"] = ema(price["adj_close"], 200)
-    price["RSI14"] = rsi(price["adj_close"], 14)
-    _, _, hist = macd(price["adj_close"])
-    price["MACD_hist"] = hist
 
     st.subheader("Price & Trend")
     fig_price = px.line(price.reset_index(), x="index", y=["adj_close","EMA50","EMA200"])
