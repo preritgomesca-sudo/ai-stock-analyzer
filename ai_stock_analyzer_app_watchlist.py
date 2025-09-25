@@ -64,25 +64,31 @@ def fetch_alpha_vantage_daily(symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 def fetch_stooq_daily(symbol: str) -> pd.DataFrame:
-    url = f"https://stooq.com/q/d/l/?s={symbol.lower()}&i=d"
-    try:
-        r = requests.get(url, timeout=30)
-        if r.status_code != 200 or "Date,Open,High,Low,Close,Volume" not in r.text:
-            return pd.DataFrame()
-        df = pd.read_csv(io.StringIO(r.text))
-        df["Date"] = pd.to_datetime(df["Date"])
-        df = df.rename(columns=str.lower).set_index("date").sort_index()
-        df["adj_close"] = df["close"]
-        return df[["open","high","low","close","adj_close","volume"]].dropna()
-    except Exception:
-        return pd.DataFrame()
+    """Robust Stooq fallback that tries common U.S. suffixes."""
+    import io
+    import requests
+    import pandas as pd
 
-@st.cache_data(show_spinner=False, ttl=60*30)
-def get_price_history(symbol: str) -> pd.DataFrame:
-    df = fetch_alpha_vantage_daily(symbol)
-    if df.empty:
-        df = fetch_stooq_daily(symbol)
-    return df
+    candidates = [
+        symbol.lower(),                 # e.g., aapl
+        f"{symbol.lower()}.us",         # aapl.us
+        f"{symbol.lower()}.nasdaq",     # aapl.nasdaq
+        f"{symbol.lower()}.nyse",       # orcl.nyse
+    ]
+    for s in candidates:
+        url = f"https://stooq.com/q/d/l/?s={s}&i=d"
+        try:
+            r = requests.get(url, timeout=30)
+            if r.status_code == 200 and "Date,Open,High,Low,Close,Volume" in r.text:
+                df = pd.read_csv(io.StringIO(r.text))
+                if not df.empty:
+                    df["Date"] = pd.to_datetime(df["Date"])
+                    df = df.rename(columns=str.lower).set_index("date").sort_index()
+                    df["adj_close"] = df["close"]
+                    return df[["open","high","low","close","adj_close","volume"]].dropna()
+        except Exception:
+            pass
+    return pd.DataFrame()
 
 # -----------------------------
 # Indicators
@@ -176,6 +182,9 @@ with st.sidebar:
     page = st.radio("Mode", ["Single Ticker", "Watchlist"], horizontal=True)
     symbol = st.text_input("Ticker (e.g., AAPL, MSFT, NVDA):", value="AAPL").strip().upper()
     horizon = st.selectbox("Time Horizon", ["Short (1-3m)", "Long (3m+)"])
+    st.caption("Data Source Status")
+st.write("Alpha Vantage key detected:", bool(ALPHA_KEY))
+
 
 # -----------------------------
 # Single Ticker
@@ -183,6 +192,16 @@ with st.sidebar:
 def render_single_ticker(sym: str):
     st.title(f"📈 {sym} — Deep Dive")
     price = get_price_history(sym)
+    if price.empty:
+    st.error(
+        "No price data found for this ticker.\n\n"
+        "• Make sure your Alpha Vantage key is set in your app’s Settings → Secrets (ALPHAVANTAGE_API_KEY)\n"
+        "• Try a liquid U.S. ticker like AAPL/MSFT/AMD\n"
+        "• Non-U.S. tickers may need exchange qualifiers; Stooq often needs a '.us' suffix\n"
+        "• Double-check the symbol (e.g., did you mean 'CRWD' instead of 'CRWV'?)"
+    )
+    st.stop()
+
     if price.empty:
         st.error("No price data found.")
         return
