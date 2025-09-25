@@ -194,6 +194,7 @@ def summarize_politician_activity(df: pd.DataFrame, symbol: str, days: int = 90)
 # -----------------------------
 # Indicators
 # -----------------------------
+
 def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
     gain = (delta.where(delta > 0, 0.0)).rolling(period).mean()
@@ -382,13 +383,13 @@ def render_single_ticker(sym: str):
     # Charts
     st.subheader("Price & Trend")
     fig_price = px.line(price.reset_index(), x="index", y=["adj_close","EMA50","EMA200"], labels={"index":"Date","value":"Price","variable":"Series"})
-    st.plotly_chart(fig_price, use_container_width=True)
+    st.plotly_chart(fig_price, width="stretch")
 
     st.subheader("RSI (14)")
-    st.plotly_chart(px.line(price.reset_index(), x="index", y="RSI14"), use_container_width=True)
+    st.plotly_chart(px.line(price.reset_index(), x="index", y="RSI14"), width="stretch")
 
     st.subheader("MACD Histogram")
-    st.plotly_chart(px.bar(price.reset_index(), x="index", y="MACD_hist"), use_container_width=True)
+    st.plotly_chart(px.bar(price.reset_index(), x="index", y="MACD_hist"), width="stretch")
 
     # Politician stats
     st.subheader("Politician Trading Activity (last 90d)")
@@ -408,7 +409,7 @@ def render_single_ticker(sym: str):
         if tone_df.empty:
             st.info("No tone data found for this query.")
         else:
-            st.plotly_chart(px.line(tone_df, x="date", y="tone", title="GDELT Tone Timeline"), use_container_width=True)
+            st.plotly_chart(px.line(tone_df, x="date", y="tone", title="GDELT Tone Timeline"), uwidth="stretch")
             news_component = tone_score(tone_df, days=30)
             st.caption(f"30-day mean tone (scaled): {news_component:.3f}")
 
@@ -501,7 +502,7 @@ def render_watchlist(horizon: str):
     # Basic sorting: strongest score first within verdict
     dfres = dfres.sort_values(["verdict","score"], ascending=[True, False])
     st.subheader("Results")
-    st.dataframe(dfres, use_container_width=True)
+    st.dataframe(dfres, width="stretch")
     st.caption("Tip: click the column headers to sort.")
 
 # -----------------------------
